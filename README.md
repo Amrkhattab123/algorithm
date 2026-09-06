@@ -9,6 +9,10 @@ This project implements and compares four algorithms that incrementally construc
 collaboration (co-authorship) networks from the
 [Network Repository](https://networkrepository.com/), spanning small to very-large scale.
 
+**Presentation slides**: [`Densest_Subgraph_Presentation.pptx`](Densest_Subgraph_Presentation.pptx)
+(15 slides — problem definition, graph modelling, all 4 algorithms, methodology, sampling
+policy, results, and an embedded simulation-demo video).
+
 ## Table of contents
 
 - [Category & applications](#category--applications)
