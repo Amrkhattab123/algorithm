@@ -2,9 +2,9 @@
 data/raw/*.mtx
 data/raw/*.zip
 
-# Generated artifacts (large; regenerate via the notebook/scripts)
-videos/*.mp4
-videos/*.gif
+# Generated artifacts -- GraphML snapshots are regenerable and voluminous
+# (100+ files,100+MB); videos are the actual required deliverable and are
+# small (a few MB total), so those ARE committed.
 outputs/**/*.graphml
 
 # Python
