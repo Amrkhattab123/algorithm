@@ -32,12 +32,22 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import pandas as pd
 
+import os
+
 from algorithms.charikar import charikar_peeling
 from algorithms.common import enumerate_triangles
 from algorithms.goldberg_maxflow import goldberg_densest_subgraph
 from algorithms.greedy_pp import greedy_plus_plus
 from algorithms.triangle_density import exact_triangle_densest_subgraph
 from data_io import DATASET_REGISTRY, load_dataset, sample_subgraph
+from visualization import (
+    export_growth_snapshots,
+    growth_frames_from_goldberg,
+    growth_frames_from_greedy_pp,
+    growth_frames_from_peeling,
+    growth_frames_from_triangle_density,
+    render_growth_video,
+)
 
 # Per-dataset sample size for Goldberg, applied only to datasets listed here.
 GOLDBERG_SAMPLE_TARGET_N = {
@@ -63,10 +73,31 @@ def _prepare_variant(G: nx.Graph, name: str, sample_map: dict):
     return G, False
 
 
-def run_one(name: str, G: nx.Graph) -> list[dict]:
-    """Run all four algorithms on dataset `name` (graph already loaded as `G`).
-    Returns a list of result-row dicts, one per algorithm."""
+def _maybe_render(name, algo, G_variant, frames, video_dir, outputs_dir, generate_visuals):
+    if not generate_visuals or not frames:
+        return
+    video_path = os.path.join(video_dir, f"{name}_{algo}.mp4")
+    render_growth_video(G_variant, frames, video_path, title=f"{name} — {algo}")
+    export_growth_snapshots(G_variant, frames, os.path.join(outputs_dir, name, algo))
+
+
+def run_one(
+    name: str,
+    G: nx.Graph,
+    generate_visuals: bool = False,
+    video_dir: str = "videos",
+    outputs_dir: str = "outputs",
+    max_frames: int = 20,
+) -> tuple[list[dict], dict]:
+    """Run all four algorithms on dataset `name` (graph already loaded as `G`),
+    once each -- timing recorded from that single run, and (if
+    `generate_visuals`) the same run's growth frames used for the video and
+    GraphML export, so nothing is computed twice.
+
+    Returns (rows, raw_results) where `raw_results` maps algorithm name to
+    its full result dict (e.g. for a Greedy++ convergence plot)."""
     rows = []
+    raw_results = {}
 
     t0 = time.perf_counter()
     charikar_result = charikar_peeling(G)
@@ -77,6 +108,9 @@ def run_one(name: str, G: nx.Graph) -> list[dict]:
         "density": charikar_result["best_density"], "subgraph_size": len(charikar_result["best_nodes"]),
         "sampled": False,
     })
+    raw_results["Charikar"] = charikar_result
+    _maybe_render(name, "Charikar", G, growth_frames_from_peeling(charikar_result, max_frames),
+                  video_dir, outputs_dir, generate_visuals)
 
     t0 = time.perf_counter()
     gpp_result = greedy_plus_plus(G)
@@ -87,6 +121,9 @@ def run_one(name: str, G: nx.Graph) -> list[dict]:
         "density": gpp_result["best_density"], "subgraph_size": len(gpp_result["best_nodes"]),
         "sampled": False,
     })
+    raw_results["Greedy++"] = gpp_result
+    _maybe_render(name, "GreedyPP", G, growth_frames_from_greedy_pp(gpp_result, max_frames),
+                  video_dir, outputs_dir, generate_visuals)
 
     G_gb, gb_sampled = _prepare_variant(G, name, GOLDBERG_SAMPLE_TARGET_N)
     goldberg_result = goldberg_densest_subgraph(G_gb)
@@ -96,6 +133,9 @@ def run_one(name: str, G: nx.Graph) -> list[dict]:
         "density": goldberg_result["best_density"], "subgraph_size": len(goldberg_result["best_nodes"]),
         "sampled": gb_sampled,
     })
+    raw_results["Goldberg"] = goldberg_result
+    _maybe_render(name, "Goldberg", G_gb, growth_frames_from_goldberg(goldberg_result, G_gb, max_frames),
+                  video_dir, outputs_dir, generate_visuals)
 
     G_td, td_sampled = _prepare_variant(G, name, TRIANGLE_SAMPLE_TARGET_N)
     triangle_result = exact_triangle_densest_subgraph(G_td)
@@ -105,29 +145,51 @@ def run_one(name: str, G: nx.Graph) -> list[dict]:
         "density": triangle_result["best_density"], "subgraph_size": len(triangle_result["best_nodes"]),
         "sampled": td_sampled,
     })
+    raw_results["TriangleDensity"] = triangle_result
+    if generate_visuals and triangle_result["n_triangles_total"] > 0:
+        triangles_td = enumerate_triangles(G_td)
+        frames = growth_frames_from_triangle_density(triangle_result, G_td, triangles_td, max_frames)
+        _maybe_render(name, "TriangleDensity", G_td, frames, video_dir, outputs_dir, generate_visuals)
 
-    return rows
+    return rows, raw_results
 
 
-def run_full_benchmark(dataset_names: list[str] | None = None, verbose: bool = True) -> pd.DataFrame:
+def run_full_benchmark(
+    dataset_names: list[str] | None = None,
+    verbose: bool = True,
+    generate_visuals: bool = False,
+    video_dir: str = "videos",
+    outputs_dir: str = "outputs",
+) -> tuple[pd.DataFrame, dict]:
+    """Run the full (dataset x algorithm) matrix once each. If
+    `generate_visuals` is True, also renders each run's incremental-
+    construction video and GraphML snapshots as a side effect of that same
+    run (no algorithm is ever executed twice).
+
+    Returns (results_df, all_raw_results) where all_raw_results maps
+    (dataset, algorithm) -> full result dict."""
     if dataset_names is None:
         dataset_names = list(DATASET_REGISTRY.keys())
 
     all_rows = []
-    all_results = {}  # (dataset, algorithm) -> full result dict, for the visualization step
+    all_raw_results = {}
     for name in dataset_names:
         if verbose:
             print(f"=== {name} ===")
         G = load_dataset(name)
-        rows = run_one(name, G)
+        rows, raw_results = run_one(
+            name, G, generate_visuals=generate_visuals, video_dir=video_dir, outputs_dir=outputs_dir
+        )
         all_rows.extend(rows)
+        for algo, result in raw_results.items():
+            all_raw_results[(name, algo)] = result
         if verbose:
             for row in rows:
                 flag = " (sampled)" if row["sampled"] else ""
                 print(f"  {row['algorithm']:16s} n={row['nodes']:>7} m={row['edges']:>8} "
                       f"runtime={row['runtime']:8.3f}s density={row['density']:.4f}{flag}")
 
-    return pd.DataFrame(all_rows)
+    return pd.DataFrame(all_rows), all_raw_results
 
 
 def plot_runtime_growth(results_df: pd.DataFrame, out_path_nodes: str, out_path_edges: str):
