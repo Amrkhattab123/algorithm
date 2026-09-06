@@ -1,0 +1,19 @@
+# Raw datasets (large, downloadable — see data/README.md for sources)
+data/raw/*.mtx
+data/raw/*.zip
+
+# Generated artifacts (large; regenerate via the notebook/scripts)
+videos/*.mp4
+videos/*.gif
+outputs/**/*.graphml
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,8 @@
+networkx>=3.2
+matplotlib>=3.8
+pandas>=2.1
+imageio>=2.34
+imageio-ffmpeg>=0.4.9
+requests>=2.31
+pytest>=8.0
+numpy>=1.26
