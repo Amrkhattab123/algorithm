@@ -23,6 +23,7 @@ import networkx as nx
 import imageio.v2 as imageio
 
 from algorithms.common import density as edge_density
+from algorithms.common import reconstruct_snapshot_tail
 from algorithms.common import triangle_density as tri_density
 
 
@@ -42,10 +43,16 @@ def _stride(seq, max_frames):
 def growth_frames_from_peeling(result: dict, max_frames: int = 20) -> list[dict]:
     """Charikar / Greedy++: reverse-replay the shrink sequence's tail from the
     best-density snapshot through to the final singleton, played backwards.
+
+    Only the (small) tail from `best_index` onward is ever materialized into
+    actual node-set snapshots (via `reconstruct_snapshot_tail`) -- its length
+    is the discovered densest subgraph's size, not the whole graph's, which
+    is what keeps this tractable even on very-large datasets.
     """
-    snapshots = result["snapshots"]
-    best_index = result["best_index"]
-    tail = list(reversed(snapshots[best_index:]))  # growing: singleton -> S*
+    tail = reconstruct_snapshot_tail(
+        result["all_nodes"], result["removal_order"], result["density_trace"], result["best_index"]
+    )
+    tail = list(reversed(tail))  # growing: singleton -> S*
     indices = _stride(tail, max_frames)
     return [
         {"step": step, "nodes": frozenset(tail[i][0]), "density": tail[i][2]}
@@ -54,11 +61,13 @@ def growth_frames_from_peeling(result: dict, max_frames: int = 20) -> list[dict]
 
 
 def growth_frames_from_greedy_pp(result: dict, max_frames: int = 20) -> list[dict]:
-    """Same reverse-replay idea, applied to the winning round's snapshot sequence."""
+    """Same reverse-replay idea, applied to the winning round's peeling trace."""
     best_round = result["best_round"]
-    snapshots = result["round_snapshots"][best_round]
+    removal_order = result["round_removal_order"][best_round]
+    density_trace = result["round_density_trace"][best_round]
     best_index = result["round_best_index"][best_round]
-    tail = list(reversed(snapshots[best_index:]))
+    tail = reconstruct_snapshot_tail(result["all_nodes"], removal_order, density_trace, best_index)
+    tail = list(reversed(tail))
     indices = _stride(tail, max_frames)
     return [
         {"step": step, "nodes": frozenset(tail[i][0]), "density": tail[i][2]}

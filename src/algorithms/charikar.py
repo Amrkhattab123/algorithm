@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import networkx as nx
 
-from .common import peel_once, weighted_degree
+from .common import peel_once, reconstruct_remaining_set, weighted_degree
 
 
 def charikar_peeling(G: nx.Graph):
@@ -22,23 +22,27 @@ def charikar_peeling(G: nx.Graph):
         best_density: float, the highest density observed during peeling
         best_nodes: frozenset, the node set achieving best_density
         removal_order: list of nodes in peeling (removal) order
-        snapshots: list of (node_set, total_weight, density), one per peeling
-                   step, in shrinking order (snapshots[0] = full graph)
-        best_index: index into `snapshots` of the best-density snapshot
+        density_trace: list of (total_weight, density), one per peeling step,
+                   in shrinking order (density_trace[0] = full graph) --
+                   O(1) per entry; use `all_nodes`/`removal_order` with
+                   `common.reconstruct_snapshot_tail` to materialize actual
+                   node-set snapshots for a suffix of steps (e.g. for
+                   visualization), rather than storing them all up front.
+        best_index: index into `density_trace` of the best-density step
+        all_nodes: frozenset of every vertex in G, for snapshot reconstruction
     """
-    removal_order, snapshots, _degree_at_removal = peel_once(
+    all_nodes = frozenset(G.nodes())
+    removal_order, density_trace, _degree_at_removal = peel_once(
         G, priority_fn=lambda v: weighted_degree(G, v)
     )
-    return _finalize(snapshots, removal_order)
-
-
-def _finalize(snapshots, removal_order):
-    best_index = max(range(len(snapshots)), key=lambda i: snapshots[i][2])
-    best_nodes, _, best_density = snapshots[best_index]
+    best_index = max(range(len(density_trace)), key=lambda i: density_trace[i][1])
+    best_density = density_trace[best_index][1]
+    best_nodes = reconstruct_remaining_set(all_nodes, removal_order, best_index)
     return {
         "best_density": best_density,
         "best_nodes": best_nodes,
         "removal_order": removal_order,
-        "snapshots": snapshots,
+        "density_trace": density_trace,
         "best_index": best_index,
+        "all_nodes": all_nodes,
     }

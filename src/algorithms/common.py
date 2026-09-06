@@ -153,11 +153,22 @@ def peel_once(G: nx.Graph, priority_fn: Callable[[object], float]):
     per-vertex "load") on top of plain weighted degree, while reusing the same
     heap-based peeling mechanics.
 
+    IMPORTANT (performance): this does NOT materialize a full node-set
+    "snapshot" at every one of the n peeling steps -- doing so would cost
+    O(n) space and time PER STEP (a frozenset copy of up to n elements),
+    i.e. O(n^2) overall, which is fine for tiny test graphs but is a fatal
+    blow-up on real datasets (e.g. n=317,080 for ca-dblp-2012 would try to
+    copy multi-hundred-thousand-element sets ~300K times -- observed to
+    exhaust >11GB of RAM and never finish). Instead only the O(1)-per-step
+    scalar trace is recorded here; call `reconstruct_snapshot_tail` below to
+    materialize actual node-set snapshots for just the (small) suffix of
+    steps actually needed for visualization.
+
     Returns:
-        removal_order: list of nodes in the order they were peeled off
-        snapshots: list of (node_set: frozenset, total_weight: float, density: float),
-                   one entry recorded *before* each removal (so snapshots[0] is
-                   the full graph, snapshots[-1] is the final single-vertex set)
+        removal_order: list of nodes in the order they were peeled off (length n)
+        density_trace: list of (total_weight: float, density: float), recorded
+                   *before* each removal (so density_trace[0] describes the
+                   full graph, density_trace[-1] the final single-vertex set)
         degree_at_removal: dict {node: induced weighted degree at the moment
                    it was removed} -- needed by Greedy++ to update its load vector
     """
@@ -170,12 +181,12 @@ def peel_once(G: nx.Graph, priority_fn: Callable[[object], float]):
     heapq.heapify(heap)
 
     removal_order = []
-    snapshots = []
+    density_trace = []
     degree_at_removal = {}
 
     while remaining:
         n_remaining = len(remaining)
-        snapshots.append((frozenset(remaining), total_w, total_w / n_remaining))
+        density_trace.append((total_w, total_w / n_remaining))
 
         # pop the lowest-score live, up-to-date vertex (lazy deletion)
         v = None
@@ -201,7 +212,35 @@ def peel_once(G: nx.Graph, priority_fn: Callable[[object], float]):
                 current_score[u] -= w
                 heapq.heappush(heap, (current_score[u], u))
 
-    return removal_order, snapshots, degree_at_removal
+    return removal_order, density_trace, degree_at_removal
+
+
+def reconstruct_remaining_set(all_nodes: frozenset, removal_order: list, upto_step: int) -> frozenset:
+    """The exact node set remaining just before `removal_order[upto_step]` is
+    removed (i.e. the snapshot at peeling step `upto_step`). O(n) -- call
+    this only a small, constant number of times per peeling run (e.g. once,
+    for the single best-density node set), not once per step.
+    """
+    return all_nodes - frozenset(removal_order[:upto_step])
+
+
+def reconstruct_snapshot_tail(all_nodes: frozenset, removal_order: list, density_trace: list, start_step: int):
+    """Materialize actual (node_set, total_weight, density) snapshots for
+    peeling steps [start_step, len(removal_order)) only -- the small suffix
+    a visualizer actually replays (typically bounded by the discovered
+    densest subgraph's size, not the whole graph's). One O(n) set-difference
+    to seed the starting `remaining` set, then O(k) discards for a suffix of
+    length k = len(removal_order) - start_step, with each of the k `frozenset`
+    snapshots costing O(current remaining size) <= O(k) -- overall O(n + k^2),
+    versus O(n^2) if this were done for the full history.
+    """
+    remaining = set(all_nodes) - set(removal_order[:start_step])
+    tail = []
+    for i in range(start_step, len(removal_order)):
+        total_w, dens = density_trace[i]
+        tail.append((frozenset(remaining), total_w, dens))
+        remaining.discard(removal_order[i])
+    return tail
 
 
 # ---------------------------------------------------------------------------

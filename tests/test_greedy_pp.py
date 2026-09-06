@@ -1,7 +1,7 @@
 import math
 
 from algorithms.charikar import charikar_peeling
-from algorithms.common import brute_force_densest_subgraph, density
+from algorithms.common import brute_force_densest_subgraph, density, reconstruct_snapshot_tail
 from algorithms.greedy_pp import greedy_plus_plus
 
 
@@ -31,11 +31,20 @@ def test_greedy_pp_best_nodes_density_is_consistent(k4_bridge_chain):
 def test_greedy_pp_round_bookkeeping_shapes(k4_bridge_chain):
     result = greedy_plus_plus(k4_bridge_chain, max_rounds=10, patience=100)
     n_rounds = len(result["round_best_density"])
+    n = k4_bridge_chain.number_of_nodes()
     assert n_rounds == 10  # patience disabled -> runs the full max_rounds
-    assert len(result["round_snapshots"]) == n_rounds
+    assert len(result["round_removal_order"]) == n_rounds
+    assert len(result["round_density_trace"]) == n_rounds
     assert len(result["round_best_index"]) == n_rounds
     assert 0 <= result["best_round"] < n_rounds
-    # every round's snapshot sequence shrinks from the full graph to 1 node
-    for snaps in result["round_snapshots"]:
-        assert len(snaps[0][0]) == k4_bridge_chain.number_of_nodes()
-        assert len(snaps[-1][0]) == 1
+    # every round's peeling trace shrinks from the full graph to 1 node
+    # (reconstructed on demand -- cheap here since the fixture is tiny)
+    for removal_order, density_trace in zip(result["round_removal_order"], result["round_density_trace"]):
+        assert len(removal_order) == n
+        assert len(density_trace) == n
+        full_tail = reconstruct_snapshot_tail(result["all_nodes"], removal_order, density_trace, 0)
+        assert len(full_tail[0][0]) == n
+        assert len(full_tail[-1][0]) == 1
+
+
+        

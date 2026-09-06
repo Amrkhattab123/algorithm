@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import networkx as nx
 
-from .common import peel_once, weighted_degree
+from .common import peel_once, reconstruct_remaining_set, weighted_degree
 
 
 def greedy_plus_plus(G: nx.Graph, max_rounds: int = 40, tol: float = 1e-6, patience: int = 5):
@@ -28,18 +28,25 @@ def greedy_plus_plus(G: nx.Graph, max_rounds: int = 40, tol: float = 1e-6, patie
         best_round: int, which round produced the global best
         round_best_density: list[float], best density seen in each round (for
                              a convergence plot)
-        round_snapshots: list[list[(node_set, total_weight, density)]], the
-                          full shrinking-snapshot sequence for every round
-                          (round_snapshots[best_round] is what the visualizer
-                          replays)
-        round_best_index: list[int], index into each round's own snapshot
-                           list of that round's best-density snapshot
+        round_removal_order: list[list[node]], each round's peeling order
+                          (round_removal_order[best_round] is what the
+                          visualizer replays, via `reconstruct_snapshot_tail`)
+        round_density_trace: list[list[(total_weight, density)]], each
+                          round's O(1)-per-step scalar trace (NOT full
+                          node-set snapshots -- see `common.peel_once` for
+                          why that would be a fatal O(n^2 * rounds) blow-up
+                          on real datasets)
+        round_best_index: list[int], index into each round's own trace of
+                           that round's best-density step
+        all_nodes: frozenset of every vertex in G, for snapshot reconstruction
     """
+    all_nodes = frozenset(G.nodes())
     load = {v: 0.0 for v in G.nodes()}
 
     round_best_density = []
     round_best_index = []
-    round_snapshots = []
+    round_removal_order = []
+    round_density_trace = []
 
     global_best_density = -1.0
     global_best_round = 0
@@ -48,15 +55,16 @@ def greedy_plus_plus(G: nx.Graph, max_rounds: int = 40, tol: float = 1e-6, patie
     prev_best = -1.0
 
     for t in range(max_rounds):
-        removal_order, snapshots, degree_at_removal = peel_once(
+        removal_order, density_trace, degree_at_removal = peel_once(
             G, priority_fn=lambda v, _load=load: _load[v] + weighted_degree(G, v)
         )
-        this_round_best_idx = max(range(len(snapshots)), key=lambda i: snapshots[i][2])
-        this_round_best_density = snapshots[this_round_best_idx][2]
+        this_round_best_idx = max(range(len(density_trace)), key=lambda i: density_trace[i][1])
+        this_round_best_density = density_trace[this_round_best_idx][1]
 
         round_best_density.append(this_round_best_density)
         round_best_index.append(this_round_best_idx)
-        round_snapshots.append(snapshots)
+        round_removal_order.append(removal_order)
+        round_density_trace.append(density_trace)
 
         if this_round_best_density > global_best_density:
             global_best_density = this_round_best_density
@@ -76,14 +84,16 @@ def greedy_plus_plus(G: nx.Graph, max_rounds: int = 40, tol: float = 1e-6, patie
             break
 
     best_index = round_best_index[global_best_round]
-    best_snapshots = round_snapshots[global_best_round]
-    best_nodes = best_snapshots[best_index][0]
+    best_removal_order = round_removal_order[global_best_round]
+    best_nodes = reconstruct_remaining_set(all_nodes, best_removal_order, best_index)
 
     return {
         "best_density": global_best_density,
         "best_nodes": best_nodes,
         "best_round": global_best_round,
         "round_best_density": round_best_density,
-        "round_snapshots": round_snapshots,
+        "round_removal_order": round_removal_order,
+        "round_density_trace": round_density_trace,
         "round_best_index": round_best_index,
+        "all_nodes": all_nodes,
     }

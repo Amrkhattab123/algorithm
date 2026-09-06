@@ -17,3 +17,9 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
+
+# Reference materials only -- not part of this project's own deliverable
+# (course spec PDF; a friend's separate shortest-path project notebook used
+# only as a pipeline-pattern reference, see README.md "Acknowledgements")
+CSAI335-Summer-2026-Course-Projects-ver12*.pdf
+Final_Alg_Proj*.ipynb
